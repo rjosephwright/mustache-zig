@@ -280,6 +280,7 @@ pub fn parseText(
         source,
         options.features,
         allocator,
+        {},
         template_text,
         default_delimiters,
         .runtime_loaded,
@@ -300,6 +301,7 @@ pub fn parseComptime(
             source,
             features,
             unused,
+            {},
             template_text,
             default_delimiters,
             .{
@@ -329,15 +331,17 @@ pub fn parseComptime(
 /// `options`: comptime options.
 pub fn parseFile(
     allocator: Allocator,
+    io: std.Io,
     template_absolute_path: []const u8,
     default_delimiters: Delimiters,
     comptime options: mustache.options.ParseFileOptions,
-) (Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError)!ParseResult {
+) (Allocator.Error || std.Io.File.OpenError || std.Io.File.ReadStreamingError)!ParseResult {
     const source = TemplateSource{ .file = .{ .read_buffer_size = options.read_buffer_size } };
     return try parseSource(
         source,
         options.features,
         allocator,
+        io,
         template_absolute_path,
         default_delimiters,
         .runtime_loaded,
@@ -348,6 +352,7 @@ fn parseSource(
     comptime source: TemplateSource,
     comptime features: Features,
     allocator: Allocator,
+    io: if (source == .file) std.Io else void,
     source_content: []const u8,
     delimiters: Delimiters,
     comptime load_mode: TemplateLoadMode,
@@ -361,6 +366,7 @@ fn parseSource(
 
     var template = TemplateLoaderType(options){
         .allocator = allocator,
+        .io = io,
         .delimiters = delimiters,
     };
 
@@ -399,6 +405,7 @@ pub fn TemplateLoaderType(comptime options: TemplateOptions) type {
         };
 
         allocator: Allocator,
+        io: if (options.source == .file) std.Io else void = if (options.source == .file) undefined else {},
         delimiters: Delimiters = .{},
         result: union(enum) {
             not_loaded,
@@ -407,7 +414,7 @@ pub fn TemplateLoaderType(comptime options: TemplateOptions) type {
         } = .not_loaded,
 
         pub fn load(self: *TemplateLoader, template: []const u8) Parser.LoadError!void {
-            var parser = try Parser.init(self.allocator, template, self.delimiters);
+            var parser = try Parser.init(self.allocator, self.io, template, self.delimiters);
             defer parser.deinit();
 
             var collector = Collector{};
@@ -425,7 +432,7 @@ pub fn TemplateLoaderType(comptime options: TemplateOptions) type {
             template_text: []const u8,
             render: anytype,
         ) ErrorSet(Parser, @TypeOf(render))!void {
-            var parser = try Parser.init(self.allocator, template_text, self.delimiters);
+            var parser = try Parser.init(self.allocator, self.io, template_text, self.delimiters);
             defer parser.deinit();
 
             _ = try parser.parse(render);
@@ -518,7 +525,7 @@ const tests = struct {
 
     pub fn expectPath(expected: []const u8, path: Element.Path) !void {
         const TestParser = TesterTemplateLoaderType(.runtime_loaded).Parser;
-        var parser = try TestParser.init(testing.allocator, "", .{});
+        var parser = try TestParser.init(testing.allocator, undefined, "", .{});
         defer parser.deinit();
 
         const expected_path = try parser.parsePath(expected);
@@ -2243,21 +2250,23 @@ const tests = struct {
             ;
 
             const allocator = testing.allocator;
+            const io = testing.io;
 
-            const path = try std.fs.selfExeDirPathAlloc(allocator);
-            defer allocator.free(path);
+            const exe_path = try std.process.executablePathAlloc(io, allocator);
+            defer allocator.free(exe_path);
+            const path = std.fs.path.dirname(exe_path) orelse ".";
 
             // Creating a temp file
             const absolute_file_path = try std.fs.path.join(allocator, &.{ path, "temp.mustache" });
             defer allocator.free(absolute_file_path);
 
             {
-                var file = try std.fs.createFileAbsolute(absolute_file_path, .{ .truncate = true });
-                try file.writeAll(template_text);
-                defer file.close();
+                var file = try std.Io.Dir.createFileAbsolute(io, absolute_file_path, .{ .truncate = true });
+                defer file.close(io);
+                try file.writeStreamingAll(io, template_text);
             }
 
-            defer std.fs.deleteFileAbsolute(absolute_file_path) catch {};
+            defer std.Io.Dir.deleteFileAbsolute(io, absolute_file_path) catch {};
 
             // Read from a file, assuring that this text should read four times from the buffer
             const read_buffer_size = (template_text.len / 4);
@@ -2268,6 +2277,7 @@ const tests = struct {
 
             var template = SmallBufferTemplateloader{
                 .allocator = allocator,
+                .io = io,
             };
 
             defer template.deinit();
@@ -2328,33 +2338,35 @@ const tests = struct {
             ;
 
             const allocator = testing.allocator;
+            const io = testing.io;
 
-            const path = try std.fs.selfExeDirPathAlloc(allocator);
-            defer allocator.free(path);
+            const exe_path = try std.process.executablePathAlloc(io, allocator);
+            defer allocator.free(exe_path);
+            const path = std.fs.path.dirname(exe_path) orelse ".";
 
             // Creating a temp file
             const test_10MB_file = try std.fs.path.join(allocator, &.{ path, "10MB_file.mustache" });
             defer allocator.free(test_10MB_file);
 
-            var file = try std.fs.createFileAbsolute(test_10MB_file, .{ .truncate = true });
-            defer std.fs.deleteFileAbsolute(test_10MB_file) catch {};
+            var file = try std.Io.Dir.createFileAbsolute(io, test_10MB_file, .{ .truncate = true });
+            defer std.Io.Dir.deleteFileAbsolute(io, test_10MB_file) catch {};
 
             // Writes the same template many times on a file
             const REPEAT = 100_000;
             var step: usize = 0;
             while (step < REPEAT) : (step += 1) {
-                try file.writeAll(template_text);
+                try file.writeStreamingAll(io, template_text);
             }
 
-            const file_size = try file.getEndPos();
-            file.close();
+            const file_size = try file.length(io);
+            file.close(io);
 
             // Must be at least 10MB big
             try testing.expect(file_size > 10 * 1024 * 1024);
 
             // 32KB should be enough memory for this job
             // 16KB if we don't need to support lambdas 😅
-            var plenty_of_memory = std.heap.GeneralPurposeAllocator(.{ .enable_memory_limit = true }){
+            var plenty_of_memory = std.heap.DebugAllocator(.{ .enable_memory_limit = true }){
                 .requested_memory_limit = 32 * 1024,
             };
             defer _ = plenty_of_memory.deinit();
@@ -2369,6 +2381,7 @@ const tests = struct {
             // Create a template to parse and render this 10MB file, with only 16KB of memory
             var template = RefStringsTemplate{
                 .allocator = plenty_of_memory.allocator(),
+                .io = io,
             };
 
             defer template.deinit();
@@ -2457,6 +2470,7 @@ const tests = struct {
         }
 
         test "parseFile API" {
+            const io = testing.io;
             const result = result: {
                 var tmp = testing.tmpDir(.{});
                 defer tmp.cleanup();
@@ -2465,16 +2479,18 @@ const tests = struct {
                     const name = "parseFile.mustache";
 
                     {
-                        var file = try tmp.dir.createFile(name, .{ .truncate = true });
-                        defer file.close();
+                        var file = try tmp.dir.createFile(io, name, .{ .truncate = true });
+                        defer file.close(io);
 
-                        try file.writeAll("{{hello}}world");
+                        try file.writeStreamingAll(io, "{{hello}}world");
                     }
 
-                    break :file_name try tmp.dir.realpathAlloc(testing.allocator, name);
+                    var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+                    const n = try tmp.dir.realPathFile(io, name, &buf);
+                    break :file_name try testing.allocator.dupe(u8, buf[0..n]);
                 };
                 defer testing.allocator.free(file_name);
-                break :result try parseFile(testing.allocator, file_name, .{}, .{});
+                break :result try parseFile(testing.allocator, io, file_name, .{}, .{});
             };
 
             switch (result) {

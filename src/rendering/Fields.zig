@@ -47,7 +47,7 @@ pub inline fn getField(data: anytype, comptime field_name: []const u8) field_typ
         const comptime_value = @field(data, field_name);
         const runtime_value: RuntimeFloat(comptime_value) = comptime_value;
         return runtime_value;
-    } else if (TField == @TypeOf(.null)) {
+    } else if (TField == @TypeOf(null)) {
         const runtime_null: ?u0 = null;
         return runtime_null;
     }
@@ -67,7 +67,7 @@ pub inline fn getRuntimeValue(ctx: anytype) type: {
         RuntimeInt(ctx)
     else if (TContext == comptime_float)
         RuntimeFloat(ctx)
-    else if (TContext == @Type(.null))
+    else if (TContext == @TypeOf(null))
         ?u0
     else
         TContext;
@@ -82,7 +82,7 @@ pub inline fn getRuntimeValue(ctx: anytype) type: {
         const comptime_value = ctx;
         const runtime_value: RuntimeFloat(comptime_value) = comptime_value;
         return runtime_value;
-    } else if (TContext == @TypeOf(.null)) {
+    } else if (TContext == @TypeOf(null)) {
         const runtime_null: ?u0 = null;
         return runtime_null;
     } else {
@@ -101,7 +101,7 @@ pub inline fn getTupleElement(ctx: anytype, comptime index: usize) element_type:
     } else if (ElementType == comptime_float) {
         const comptime_value = ctx[index];
         break :element_type RuntimeFloat(comptime_value);
-    } else if (ElementType == @Type(.null)) {
+    } else if (ElementType == @TypeOf(null)) {
         break :element_type ?u0;
     } else if (byValue(ElementType)) {
         break :element_type ElementType;
@@ -118,7 +118,7 @@ pub inline fn getTupleElement(ctx: anytype, comptime index: usize) element_type:
         const comptime_value = ctx[index];
         const runtime_value: RuntimeFloat(comptime_value) = comptime_value;
         return runtime_value;
-    } else if (ElementType == @Type(.null)) {
+    } else if (ElementType == @TypeOf(null)) {
         const runtime_null: ?u0 = null;
         return runtime_null;
     } else if (comptime byValue(ElementType)) {
@@ -195,7 +195,7 @@ pub fn byValue(comptime TField: type) bool {
         ++ @typeName(TField));
 
         const max_size = @sizeOf(ErasedType);
-        const size = if (TField == @TypeOf(null)) 0 else @sizeOf(TField);
+        const size = if (TField == @TypeOf(null) or TField == comptime_int or TField == comptime_float) 0 else @sizeOf(TField);
         const is_zero_size = size == 0;
 
         const is_pointer = stdx.isSlice(TField) or
@@ -250,7 +250,7 @@ fn FieldRef(comptime T: type, comptime field_name: []const u8) type {
 
     assert(TField != comptime_int);
     assert(TField != comptime_float);
-    assert(TField != @TypeOf(.null));
+    assert(TField != @TypeOf(null));
 
     if (@typeInfo(T) == .optional) {
         return FieldRef(meta.Child(T), field_name);

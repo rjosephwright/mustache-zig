@@ -387,7 +387,7 @@ const context_tests = struct {
     const dummy_map = DummyPartialsMap.init(undefined, {});
 
     fn expectPath(allocator: Allocator, path: []const u8) !Element.Path {
-        var parser = try DummyParser.init(allocator, "", .{});
+        var parser = try DummyParser.init(allocator, {}, "", .{});
         defer parser.deinit();
 
         return try parser.parsePath(path);

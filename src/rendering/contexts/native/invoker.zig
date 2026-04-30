@@ -601,7 +601,7 @@ const invoker_tests = struct {
     }
 
     fn dummySeek(comptime TExpected: type, data: anytype, identifier: []const u8, index: ?usize) !DummyPathInvoker.PathResolution {
-        var parser = try DummyParser.init(testing.allocator, "", .{});
+        var parser = try DummyParser.init(testing.allocator, {}, "", .{});
         defer parser.deinit();
 
         const path = try parser.parsePath(identifier);

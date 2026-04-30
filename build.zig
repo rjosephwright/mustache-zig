@@ -68,13 +68,13 @@ pub fn build(b: *std.Build) void {
                 .root_source_file = null,
                 .target = target,
                 .optimize = mode,
+                .link_libc = true,
             }),
         });
         c_sample.root_module.addCSourceFile(.{
             .file = b.path("samples/c/sample.c"),
         });
-        c_sample.linkLibrary(static_lib);
-        c_sample.linkLibC();
+        c_sample.root_module.linkLibrary(static_lib);
 
         const run_cmd = b.addRunArtifact(c_sample);
         run_cmd.step.dependOn(b.getInstallStep());

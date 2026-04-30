@@ -34,7 +34,7 @@ pub const LambdaContext = context.LambdaContext;
 const indent = @import("indent.zig");
 const map = @import("partials_map.zig");
 
-const FileError = std.fs.File.OpenError || std.fs.File.ReadError;
+const FileError = std.Io.File.OpenError || std.Io.File.ReadStreamingError;
 
 pub const ContextSource = enum {
     native,
@@ -339,7 +339,7 @@ pub fn renderTextPartialsWithOptions(
     comptime options: mustache.options.RenderFromStringOptions,
 ) (Allocator.Error || ParseError || std.Io.Writer.Error)!void {
     const render_options = RenderOptions{ .string = options };
-    try internalCollect(allocator, template_text, partials, data, writer, render_options);
+    try internalCollect(render_options, allocator, {}, template_text, partials, data, writer);
 }
 
 /// Parses the `template_text` and renders with the given `data` and returns an owned slice with the content.
@@ -389,7 +389,7 @@ pub fn allocRenderTextPartialsWithOptions(
     comptime options: mustache.options.RenderFromStringOptions,
 ) (Allocator.Error || ParseError)![]const u8 {
     const render_options = RenderOptions{ .string = options };
-    return try internalAllocCollect(allocator, template_text, partials, data, render_options, null);
+    return try internalAllocCollect(render_options, null, allocator, {}, template_text, partials, data);
 }
 
 /// Parses the `template_text` and renders with the given `data` and returns an owned
@@ -444,13 +444,13 @@ pub fn allocRenderTextZPartialsWithOptions(
     comptime options: mustache.options.RenderFromStringOptions,
 ) (Allocator.Error || ParseError)![:0]const u8 {
     const render_options = RenderOptions{ .string = options };
-    return try internalAllocCollect(allocator, template_text, partials, data, render_options, '\x00');
+    return try internalAllocCollect(render_options, '\x00', allocator, {}, template_text, partials, data);
 }
 
 /// Parses the file indicated by `template_absolute_path` and renders with
 /// the given `data` to a `writer`.
-pub fn renderFile(allocator: Allocator, template_absolute_path: []const u8, data: anytype, writer: *std.Io.Writer) (Allocator.Error || ParseError || FileError || std.Io.Writer.Error)!void {
-    try renderFilePartialsWithOptions(allocator, template_absolute_path, {}, data, writer, .{});
+pub fn renderFile(allocator: Allocator, io: std.Io, template_absolute_path: []const u8, data: anytype, writer: *std.Io.Writer) (Allocator.Error || ParseError || FileError || std.Io.Writer.Error)!void {
+    try renderFilePartialsWithOptions(allocator, io, template_absolute_path, {}, data, writer, .{});
 }
 
 /// Parses the file indicated by `template_absolute_path` and renders with
@@ -458,12 +458,13 @@ pub fn renderFile(allocator: Allocator, template_absolute_path: []const u8, data
 /// `options` defines the behavior of the parser and render process
 pub fn renderFileWithOptions(
     allocator: Allocator,
+    io: std.Io,
     template_absolute_path: []const u8,
     data: anytype,
     writer: *std.Io.Writer,
     comptime options: mustache.options.RenderFromFileOptions,
 ) (Allocator.Error || ParseError || FileError || std.Io.Writer.Error)!void {
-    try renderFilePartialsWithOptions(allocator, template_absolute_path, {}, data, writer, options);
+    try renderFilePartialsWithOptions(allocator, io, template_absolute_path, {}, data, writer, options);
 }
 
 /// Parses the file indicated by `template_absolute_path` and renders with
@@ -472,12 +473,13 @@ pub fn renderFileWithOptions(
 /// partial's name as key and the template absolute path as value.
 pub fn renderFilePartials(
     allocator: Allocator,
+    io: std.Io,
     template_absolute_path: []const u8,
     partials: anytype,
     data: anytype,
     writer: *std.Io.Writer,
 ) (Allocator.Error || ParseError || FileError || std.Io.Writer.Error)!void {
-    try renderFilePartialsWithOptions(allocator, template_absolute_path, partials, data, writer, .{});
+    try renderFilePartialsWithOptions(allocator, io, template_absolute_path, partials, data, writer, .{});
 }
 
 /// Parses the file indicated by `template_absolute_path` and renders with
@@ -487,6 +489,7 @@ pub fn renderFilePartials(
 /// `options` defines the behavior of the parser and render process.
 pub fn renderFilePartialsWithOptions(
     allocator: Allocator,
+    io: std.Io,
     template_absolute_path: []const u8,
     partials: anytype,
     data: anytype,
@@ -494,7 +497,7 @@ pub fn renderFilePartialsWithOptions(
     comptime options: mustache.options.RenderFromFileOptions,
 ) (Allocator.Error || ParseError || FileError || std.Io.Writer.Error)!void {
     const render_options = RenderOptions{ .file = options };
-    try internalCollect(allocator, template_absolute_path, partials, data, writer, render_options);
+    try internalCollect(render_options, allocator, io, template_absolute_path, partials, data, writer);
 }
 
 /// Parses the file indicated by `template_absolute_path` and renders with
@@ -502,10 +505,11 @@ pub fn renderFilePartialsWithOptions(
 /// Caller must free the memory.
 pub fn allocRenderFile(
     allocator: Allocator,
+    io: std.Io,
     template_absolute_path: []const u8,
     data: anytype,
 ) (Allocator.Error || ParseError || FileError)![]const u8 {
-    return try allocRenderFilePartialsWithOptions(allocator, template_absolute_path, {}, data, .{});
+    return try allocRenderFilePartialsWithOptions(allocator, io, template_absolute_path, {}, data, .{});
 }
 
 /// Parses the file indicated by `template_absolute_path` and renders with
@@ -514,11 +518,12 @@ pub fn allocRenderFile(
 /// Caller must free the memory.
 pub fn allocRenderFileWithOptions(
     allocator: Allocator,
+    io: std.Io,
     template_absolute_path: []const u8,
     data: anytype,
     comptime options: mustache.options.RenderFromFileOptions,
 ) (Allocator.Error || ParseError || FileError)![]const u8 {
-    return try allocRenderFilePartialsWithOptions(allocator, template_absolute_path, {}, data, options);
+    return try allocRenderFilePartialsWithOptions(allocator, io, template_absolute_path, {}, data, options);
 }
 
 /// Parses the file indicated by `template_absolute_path` and renders with
@@ -528,11 +533,12 @@ pub fn allocRenderFileWithOptions(
 /// Caller must free the memory.
 pub fn allocRenderFilePartials(
     allocator: Allocator,
+    io: std.Io,
     template_absolute_path: []const u8,
     partials: anytype,
     data: anytype,
 ) (Allocator.Error || ParseError || FileError)![]const u8 {
-    return try allocRenderFilePartialsWithOptions(allocator, template_absolute_path, partials, data, .{});
+    return try allocRenderFilePartialsWithOptions(allocator, io, template_absolute_path, partials, data, .{});
 }
 
 /// Parses the file indicated by `template_absolute_path` and renders with
@@ -543,13 +549,14 @@ pub fn allocRenderFilePartials(
 /// Caller must free the memory.
 pub fn allocRenderFilePartialsWithOptions(
     allocator: Allocator,
+    io: std.Io,
     template_absolute_path: []const u8,
     partials: anytype,
     data: anytype,
     comptime options: mustache.options.RenderFromFileOptions,
 ) (Allocator.Error || ParseError || FileError)![]const u8 {
     const render_options = RenderOptions{ .file = options };
-    return try internalAllocCollect(allocator, template_absolute_path, partials, data, render_options, null);
+    return try internalAllocCollect(render_options, null, allocator, io, template_absolute_path, partials, data);
 }
 
 /// Parses the file indicated by `template_absolute_path` and renders with
@@ -557,10 +564,11 @@ pub fn allocRenderFilePartialsWithOptions(
 /// Caller must free the memory.
 pub fn allocRenderFileZ(
     allocator: Allocator,
+    io: std.Io,
     template_absolute_path: []const u8,
     data: anytype,
 ) (Allocator.Error || ParseError || FileError)![:0]const u8 {
-    return try allocRenderFileZPartialsWithOptions(allocator, template_absolute_path, {}, data, .{});
+    return try allocRenderFileZPartialsWithOptions(allocator, io, template_absolute_path, {}, data, .{});
 }
 
 /// Parses the file indicated by `template_absolute_path` and renders with
@@ -569,11 +577,12 @@ pub fn allocRenderFileZ(
 /// Caller must free the memory.
 pub fn allocRenderFileZWithOptions(
     allocator: Allocator,
+    io: std.Io,
     template_absolute_path: []const u8,
     data: anytype,
     comptime options: mustache.options.RenderFromFileOptions,
 ) (Allocator.Error || ParseError || FileError)![:0]const u8 {
-    return try allocRenderFileZPartialsWithOptions(allocator, template_absolute_path, {}, data, options);
+    return try allocRenderFileZPartialsWithOptions(allocator, io, template_absolute_path, {}, data, options);
 }
 
 /// Parses the file indicated by `template_absolute_path` and renders with
@@ -583,11 +592,12 @@ pub fn allocRenderFileZWithOptions(
 /// Caller must free the memory.
 pub fn allocRenderFileZPartials(
     allocator: Allocator,
+    io: std.Io,
     template_absolute_path: []const u8,
     partials: anytype,
     data: anytype,
 ) (Allocator.Error || ParseError || FileError)![:0]const u8 {
-    return try allocRenderFileZPartialsWithOptions(allocator, template_absolute_path, partials, data, .{});
+    return try allocRenderFileZPartialsWithOptions(allocator, io, template_absolute_path, partials, data, .{});
 }
 
 /// Parses the file indicated by `template_absolute_path` and renders with
@@ -598,13 +608,14 @@ pub fn allocRenderFileZPartials(
 /// Caller must free the memory.
 pub fn allocRenderFileZPartialsWithOptions(
     allocator: Allocator,
+    io: std.Io,
     template_absolute_path: []const u8,
     partials: anytype,
     data: anytype,
     comptime options: mustache.options.RenderFromFileOptions,
 ) (Allocator.Error || ParseError || FileError)![:0]const u8 {
     const render_options = RenderOptions{ .file = options };
-    return try internalAllocCollect(allocator, template_absolute_path, partials, data, render_options, '\x00');
+    return try internalAllocCollect(render_options, '\x00', allocator, io, template_absolute_path, partials, data);
 }
 
 fn internalRender(
@@ -661,12 +672,13 @@ fn internalAllocRender(
 }
 
 fn internalCollect(
+    comptime options: RenderOptions,
     allocator: Allocator,
+    io: if (options == .file) std.Io else void,
     template: []const u8,
     partials: anytype,
     data: anytype,
     writer: *std.Io.Writer,
-    comptime options: RenderOptions,
 ) !void {
     comptime assert(options != .template);
 
@@ -680,6 +692,7 @@ fn internalCollect(
 
     try RenderEngine.collect(
         allocator,
+        io,
         template,
         data,
         writer,
@@ -688,12 +701,13 @@ fn internalCollect(
 }
 
 fn internalAllocCollect(
+    comptime options: RenderOptions,
+    comptime sentinel: ?u8,
     allocator: Allocator,
+    io: if (options == .file) std.Io else void,
     template: []const u8,
     partials: anytype,
     data: anytype,
-    comptime options: RenderOptions,
-    comptime sentinel: ?u8,
 ) !if (sentinel) |z| [:z]const u8 else []const u8 {
     comptime assert(options != .template);
 
@@ -711,6 +725,7 @@ fn internalAllocCollect(
     // `Allocating.drain` only fails when the underlying allocator fails.
     RenderEngine.bufCollect(
         allocator,
+        io,
         &aw,
         template,
         data,
@@ -758,6 +773,7 @@ pub fn RenderEngineType(
             partials_map: PartialsMap,
             indentation_queue: *IndentationQueue,
             template_options: if (options == .template) *const TemplateOptions else void,
+            io: if (options == .file) std.Io else void = if (options == .file) undefined else {},
 
             pub fn collect(self: *DataRender, allocator: Allocator, template: []const u8) !void {
                 switch (comptime options) {
@@ -789,6 +805,7 @@ pub fn RenderEngineType(
 
                         var template_loader = TemplateLoaderType(render_file_options){
                             .allocator = allocator,
+                            .io = self.io,
                         };
                         errdefer template_loader.deinit();
                         try template_loader.collectElements(template, self);
@@ -1344,6 +1361,7 @@ pub fn RenderEngineType(
 
         pub fn collect(
             allocator: Allocator,
+            io: if (options == .file) std.Io else void,
             template: []const u8,
             data: anytype,
             writer: *Writer,
@@ -1366,6 +1384,7 @@ pub fn RenderEngineType(
                 .stack = &context_stack,
                 .indentation_queue = &indentation_queue,
                 .template_options = {},
+                .io = io,
             };
 
             try data_render.collect(allocator, template);
@@ -1373,6 +1392,7 @@ pub fn RenderEngineType(
 
         pub fn bufCollect(
             allocator: Allocator,
+            io: if (options == .file) std.Io else void,
             writer: *Writer.Allocating,
             template: []const u8,
             data: anytype,
@@ -1395,6 +1415,7 @@ pub fn RenderEngineType(
                 .stack = &context_stack,
                 .indentation_queue = &indentation_queue,
                 .template_options = {},
+                .io = io,
             };
 
             try data_render.collect(allocator, template);
@@ -4225,27 +4246,29 @@ const tests = struct {
             const absolute_path = try getTemplateFile(tmp.dir, "renderFile.mustache", template_text);
             defer testing.allocator.free(absolute_path);
 
+            const io = testing.io;
+
             {
                 var d: std.Io.Writer.Discarding = .init(&.{});
-                try mustache.renderFile(testing.allocator, absolute_path, data, &d.writer);
+                try mustache.renderFile(testing.allocator, io, absolute_path, data, &d.writer);
                 try testing.expect(d.fullCount() == expected.len);
             }
 
             {
                 var d: std.Io.Writer.Discarding = .init(&.{});
-                try mustache.renderFilePartials(testing.allocator, absolute_path, partials, data, &d.writer);
+                try mustache.renderFilePartials(testing.allocator, io, absolute_path, partials, data, &d.writer);
                 try testing.expect(d.fullCount() == expected.len);
             }
 
             {
                 var d: std.Io.Writer.Discarding = .init(&.{});
-                try mustache.renderFileWithOptions(testing.allocator, absolute_path, data, &d.writer, options);
+                try mustache.renderFileWithOptions(testing.allocator, io, absolute_path, data, &d.writer, options);
                 try testing.expect(d.fullCount() == expected.len);
             }
 
             {
                 var d: std.Io.Writer.Discarding = .init(&.{});
-                try mustache.renderFilePartialsWithOptions(testing.allocator, absolute_path, partials, data, &d.writer, options);
+                try mustache.renderFilePartialsWithOptions(testing.allocator, io, absolute_path, partials, data, &d.writer, options);
                 try testing.expect(d.fullCount() == expected.len);
             }
         }
@@ -4263,26 +4286,28 @@ const tests = struct {
             const absolute_path = try getTemplateFile(tmp.dir, "allocRenderFile.mustache", template_text);
             defer testing.allocator.free(absolute_path);
 
+            const io = testing.io;
+
             {
-                const ret = try mustache.allocRenderFile(testing.allocator, absolute_path, data);
+                const ret = try mustache.allocRenderFile(testing.allocator, io, absolute_path, data);
                 defer testing.allocator.free(ret);
                 try testing.expectEqualStrings(ret, expected);
             }
 
             {
-                const ret = try mustache.allocRenderFilePartials(testing.allocator, absolute_path, partials, data);
+                const ret = try mustache.allocRenderFilePartials(testing.allocator, io, absolute_path, partials, data);
                 defer testing.allocator.free(ret);
                 try testing.expectEqualStrings(ret, expected);
             }
 
             {
-                const ret = try mustache.allocRenderFileWithOptions(testing.allocator, absolute_path, data, options);
+                const ret = try mustache.allocRenderFileWithOptions(testing.allocator, io, absolute_path, data, options);
                 defer testing.allocator.free(ret);
                 try testing.expectEqualStrings(ret, expected);
             }
 
             {
-                const ret = try mustache.allocRenderFilePartialsWithOptions(testing.allocator, absolute_path, partials, data, options);
+                const ret = try mustache.allocRenderFilePartialsWithOptions(testing.allocator, io, absolute_path, partials, data, options);
                 defer testing.allocator.free(ret);
                 try testing.expectEqualStrings(ret, expected);
             }
@@ -4301,26 +4326,28 @@ const tests = struct {
             const absolute_path = try getTemplateFile(tmp.dir, "allocRenderFile.mustache", template_text);
             defer testing.allocator.free(absolute_path);
 
+            const io = testing.io;
+
             {
-                const ret = try mustache.allocRenderFileZ(testing.allocator, absolute_path, data);
+                const ret = try mustache.allocRenderFileZ(testing.allocator, io, absolute_path, data);
                 defer testing.allocator.free(ret);
                 try testing.expectEqualStrings(ret, expected);
             }
 
             {
-                const ret = try mustache.allocRenderFileZPartials(testing.allocator, absolute_path, partials, data);
+                const ret = try mustache.allocRenderFileZPartials(testing.allocator, io, absolute_path, partials, data);
                 defer testing.allocator.free(ret);
                 try testing.expectEqualStrings(ret, expected);
             }
 
             {
-                const ret = try mustache.allocRenderFileZWithOptions(testing.allocator, absolute_path, data, options);
+                const ret = try mustache.allocRenderFileZWithOptions(testing.allocator, io, absolute_path, data, options);
                 defer testing.allocator.free(ret);
                 try testing.expectEqualStrings(ret, expected);
             }
 
             {
-                const ret = try mustache.allocRenderFileZPartialsWithOptions(testing.allocator, absolute_path, partials, data, options);
+                const ret = try mustache.allocRenderFileZPartialsWithOptions(testing.allocator, io, absolute_path, partials, data, options);
                 defer testing.allocator.free(ret);
                 try testing.expectEqualStrings(ret, expected);
             }
@@ -4633,14 +4660,17 @@ const tests = struct {
         try testing.expectEqualStrings(expected, result);
     }
 
-    fn getTemplateFile(dir: std.fs.Dir, file_name: []const u8, template_text: []const u8) ![]const u8 {
+    fn getTemplateFile(dir: std.Io.Dir, file_name: []const u8, template_text: []const u8) ![]const u8 {
+        const io = testing.io;
         {
-            var file = try dir.createFile(file_name, .{ .truncate = true });
-            defer file.close();
+            var file = try dir.createFile(io, file_name, .{ .truncate = true });
+            defer file.close(io);
 
-            try file.writeAll(template_text);
+            try file.writeStreamingAll(io, template_text);
         }
 
-        return try dir.realpathAlloc(testing.allocator, file_name);
+        var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+        const n = try dir.realPathFile(io, file_name, &buf);
+        return try testing.allocator.dupe(u8, buf[0..n]);
     }
 };
