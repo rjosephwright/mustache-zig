@@ -366,7 +366,7 @@ pub fn ParserType(comptime options: TemplateOptions) type {
 
             defer if (options.isRefCounted()) self.unRefNodes();
 
-            var list: std.ArrayListUnmanaged(Element) = .empty;
+            var list: std.ArrayList(Element) = .empty;
 
             if (options.load_mode == .runtime_loaded) {
                 try list.ensureTotalCapacityPrecise(self.gpa, nodes.items.len);
@@ -391,7 +391,13 @@ pub fn ParserType(comptime options: TemplateOptions) type {
                 }
             }
 
-            const elements = if (options.output == .render or options.load_mode == .comptime_loaded) list.items else try list.toOwnedSlice(self.gpa);
+            const elements: []const Element = if (is_comptime) elements: {
+                const storage = list.items[0..list.items.len].*;
+                break :elements &storage;
+            } else if (options.output == .render)
+                list.items
+            else
+                try list.toOwnedSlice(self.gpa);
             try render.render(elements);
         }
 
@@ -452,7 +458,12 @@ pub fn ParserType(comptime options: TemplateOptions) type {
             } else {
                 const path_separator = '.';
                 var iterator = std.mem.tokenizeScalar(u8, identifier, path_separator);
-                return (try action(self, &iterator, 0)) orelse empty;
+                const path: Element.Path = (try action(self, &iterator, 0)) orelse empty;
+                if (is_comptime) {
+                    const storage = path[0..path.len].*;
+                    return &storage;
+                }
+                return path;
             }
         }
 
@@ -543,7 +554,7 @@ fn TesterParserType(comptime load_mode: TemplateLoadMode) type {
 const DummyRender = struct {
     pub const Error = error{};
 
-    pub fn render(ctx: *@This(), elements: []Element) Error!void {
+    pub fn render(ctx: *@This(), elements: []const Element) Error!void {
         _ = ctx;
         _ = elements;
     }
@@ -566,7 +577,7 @@ test "Basic parse" {
 
         calls: u32 = 0,
 
-        pub fn render(ctx: *@This(), elements: []Element) Error!void {
+        pub fn render(ctx: *@This(), elements: []const Element) Error!void {
             defer ctx.calls += 1;
 
             switch (ctx.calls) {
@@ -692,7 +703,7 @@ test "Scan standAlone tags" {
 
         calls: u32 = 0,
 
-        pub fn render(ctx: *@This(), elements: []Element) Error!void {
+        pub fn render(ctx: *@This(), elements: []const Element) Error!void {
             defer ctx.calls += 1;
 
             switch (ctx.calls) {
@@ -751,7 +762,7 @@ test "Scan delimiters Tags" {
 
         calls: u32 = 0,
 
-        pub fn render(ctx: *@This(), elements: []Element) Error!void {
+        pub fn render(ctx: *@This(), elements: []const Element) Error!void {
             defer ctx.calls += 1;
 
             switch (ctx.calls) {

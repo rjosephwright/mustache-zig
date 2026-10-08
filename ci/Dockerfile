@@ -1,6 +1,7 @@
 ## Zig + git + codecov + kcov
 FROM ubuntu:20.04
 ARG ZIG_JSON=https://ziglang.org/download/index.json
+ARG ZIG_VERSION=0.17.0
 ARG CODECOV=https://uploader.codecov.io/latest/linux/codecov
 ARG TARGET_DIR=/usr/local/bin/zig
 WORKDIR /usr/src
@@ -14,7 +15,8 @@ RUN apt-get update && \
 		kcov \
 		jq \
 	&& \
-	export ZIG_URL=$(curl "$ZIG_JSON" | jq '."master"."x86_64-linux"."tarball"' --raw-output) && \
+	export ZIG_URL=$(curl "$ZIG_JSON" | \
+		jq --arg version "$ZIG_VERSION" '.[$version]."x86_64-linux"."tarball"' --raw-output) && \
 	curl "$ZIG_URL" -o zig.tar.xz  && \
 	mkdir -p "$TARGET_DIR"  && \
 	tar -Jxf zig.tar.xz -C "$TARGET_DIR" --strip-components=1 && \
@@ -34,5 +36,5 @@ ENV CODECOV_TOKEN=''
 
 CMD git clone "$REPO" repo && \
     cd repo && \
-    zig build test -Dtest-coverage -Dcomptime-tests=false && \
+    zig build test -Dtest-coverage && \
     codecov

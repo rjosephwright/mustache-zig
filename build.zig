@@ -78,9 +78,7 @@ pub fn build(b: *std.Build) void {
 
         const run_cmd = b.addRunArtifact(c_sample);
         run_cmd.step.dependOn(b.getInstallStep());
-        if (b.args) |args| {
-            run_cmd.addArgs(args);
-        }
+        run_cmd.addPassthruArgs();
 
         const c_sample_build = b.step("c_sample", "Run the C sample");
         c_sample_build.dependOn(&run_cmd.step);
@@ -89,8 +87,7 @@ pub fn build(b: *std.Build) void {
     // Tests
 
     var comptime_tests = b.addOptions();
-    // TODO: Re-enable comptime tests
-    const comptime_tests_enabled = b.option(bool, "comptime-tests", "Run comptime tests") orelse false;
+    const comptime_tests_enabled = b.option(bool, "comptime-tests", "Run comptime tests") orelse true;
     comptime_tests.addOption(bool, "comptime_tests_enabled", comptime_tests_enabled);
 
     {
@@ -122,7 +119,7 @@ pub fn build(b: *std.Build) void {
                 "kcov",    "--exclude-pattern",
                 "lib/std", "kcov-output",
             });
-            kcov.addArtifactArg(main_tests);
+            kcov.addArtifactArg2(main_tests, .{});
 
             run_main_tests.step.dependOn(&kcov.step);
         }

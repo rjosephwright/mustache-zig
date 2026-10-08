@@ -2,12 +2,12 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const mustache = @import("mustache");
 
-pub fn main() anyerror!void {
+pub fn main(init: std.process.Init) anyerror!void {
     std.debug.print("Benchmark\n{s}\n", .{"https://github.com/batiati/mustache_benchmark"});
     std.debug.print("=============================\n\n", .{});
-    try runTemplate("Template 1", Binding1, "data/template1.html", "data/bindings1.json");
-    try runTemplate("Template 2", Binding2, "data/template2.html", "data/bindings2.json");
-    try runTemplate("Template 3", Binding3, "data/template3.html", "data/bindings3.json");
+    try runTemplate(init.io, "Template 1", Binding1, "data/template1.html", "data/bindings1.json");
+    try runTemplate(init.io, "Template 2", Binding2, "data/template2.html", "data/bindings2.json");
+    try runTemplate(init.io, "Template 3", Binding3, "data/template3.html", "data/bindings3.json");
 }
 
 const TIMES = 1_000_000;
@@ -39,7 +39,13 @@ const Binding3 = struct {
     repo2: []const Repo,
 };
 
-fn runTemplate(comptime caption: []const u8, comptime TBinding: type, comptime template: []const u8, comptime json: []const u8) !void {
+fn runTemplate(
+    io: std.Io,
+    comptime caption: []const u8,
+    comptime TBinding: type,
+    comptime template: []const u8,
+    comptime json: []const u8,
+) !void {
     const template_text = @embedFile(template);
 
     const allocator = std.heap.c_allocator;
@@ -47,43 +53,71 @@ fn runTemplate(comptime caption: []const u8, comptime TBinding: type, comptime t
     var cached_template = parseTemplate(allocator, template_text);
     defer cached_template.deinit(allocator);
 
-    try runTemplatePreParsed(allocator, caption ++ " - pre-parsed", TBinding, @embedFile(json), cached_template);
-    try runTemplateNotParsed(allocator, caption ++ " - not parsed", TBinding, @embedFile(json), template_text);
+    try runTemplatePreParsed(
+        allocator,
+        io,
+        caption ++ " - pre-parsed",
+        TBinding,
+        @embedFile(json),
+        cached_template,
+    );
+    try runTemplateNotParsed(
+        allocator,
+        io,
+        caption ++ " - not parsed",
+        TBinding,
+        @embedFile(json),
+        template_text,
+    );
 }
 
-fn runTemplatePreParsed(allocator: Allocator, comptime caption: []const u8, comptime TBinding: type, comptime json: []const u8, template: mustache.Template) !void {
+fn runTemplatePreParsed(
+    allocator: Allocator,
+    io: std.Io,
+    comptime caption: []const u8,
+    comptime TBinding: type,
+    comptime json: []const u8,
+    template: mustache.Template,
+) !void {
     var data = try std.json.parseFromSlice(TBinding, allocator, json, .{});
     defer data.deinit();
 
     var total_bytes: usize = 0;
     var repeat: u32 = 0;
-    const start = std.time.nanoTimestamp();
+    const start = std.Io.Timestamp.now(io, .awake);
     while (repeat < TIMES) : (repeat += 1) {
         const result = try mustache.allocRender(allocator, template, &data.value);
         total_bytes += result.len;
         allocator.free(result);
     }
-    const end = std.time.nanoTimestamp();
+    const end = std.Io.Timestamp.now(io, .awake);
 
-    const ellapsed = end - start;
+    const ellapsed = start.durationTo(end).toNanoseconds();
     printSummary(caption, ellapsed, total_bytes);
 }
 
-fn runTemplateNotParsed(allocator: Allocator, comptime caption: []const u8, comptime TBinding: type, comptime json: []const u8, comptime template_text: []const u8) !void {
+fn runTemplateNotParsed(
+    allocator: Allocator,
+    io: std.Io,
+    comptime caption: []const u8,
+    comptime TBinding: type,
+    comptime json: []const u8,
+    comptime template_text: []const u8,
+) !void {
     var data = try std.json.parseFromSlice(TBinding, allocator, json, .{});
     defer data.deinit();
 
     var total_bytes: usize = 0;
     var repeat: u32 = 0;
-    const start = std.time.nanoTimestamp();
+    const start = std.Io.Timestamp.now(io, .awake);
     while (repeat < TIMES) : (repeat += 1) {
         const result = try mustache.allocRenderText(allocator, template_text, &data.value);
         total_bytes += result.len;
         allocator.free(result);
     }
-    const end = std.time.nanoTimestamp();
+    const end = std.Io.Timestamp.now(io, .awake);
 
-    const ellapsed = end - start;
+    const ellapsed = start.durationTo(end).toNanoseconds();
     printSummary(caption, ellapsed, total_bytes);
 }
 

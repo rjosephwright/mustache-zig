@@ -169,10 +169,16 @@ pub fn InvokerType(
                     next_path_parts: Element.Path,
                     index: ?usize,
                 ) TError!PathResolution {
-                    const fields = std.meta.fields(TValue);
-                    inline for (fields) |field| {
-                        if (std.mem.eql(u8, field.name, current_path_part)) {
-                            return try find(.Leaf, action_param, Fields.getField(data, field.name), next_path_parts, index);
+                    const field_names = @typeInfo(TValue).@"struct".field_names;
+                    inline for (field_names) |field_name| {
+                        if (std.mem.eql(u8, field_name, current_path_part)) {
+                            return try find(
+                                .Leaf,
+                                action_param,
+                                Fields.getField(data, field_name),
+                                next_path_parts,
+                                index,
+                            );
                         }
                     } else {
                         if (next_path_parts.len == 0) {
@@ -190,13 +196,13 @@ pub fn InvokerType(
                     data: anytype,
                     current_path_part: []const u8,
                 ) TError!PathResolution {
-                    const decls = comptime std.meta.declarations(TValue);
-                    inline for (decls) |decl| {
-                        const has_fn = comptime meta.hasFn(TValue, decl.name);
+                    const decl_names = @typeInfo(TValue).@"struct".decl_names;
+                    inline for (decl_names) |decl_name| {
+                        const has_fn = comptime meta.hasFn(TValue, decl_name);
                         if (has_fn) {
-                            const bound_fn = @field(TValue, decl.name);
+                            const bound_fn = @field(TValue, decl_name);
                             const is_valid_lambda = comptime lambda.isValidLambdaFunction(TValue, @TypeOf(bound_fn));
-                            if (std.mem.eql(u8, current_path_part, decl.name)) {
+                            if (std.mem.eql(u8, current_path_part, decl_name)) {
                                 if (is_valid_lambda) {
                                     return try getLambda(
                                         action_param,
@@ -220,7 +226,7 @@ pub fn InvokerType(
                 ) TError!PathResolution {
                     const TData = @TypeOf(data);
                     const TFn = @TypeOf(bound_fn);
-                    const params_len = @typeInfo(TFn).@"fn".params.len;
+                    const params_len = @typeInfo(TFn).@"fn".param_types.len;
 
                     // Lambdas cannot be used for navigation through a path
                     // Examples:
@@ -253,7 +259,7 @@ pub fn InvokerType(
                         .@"struct" => |info| {
                             if (info.is_tuple) {
                                 const derref = comptime stdx.isSingleItemPtr(Data);
-                                inline for (0..info.fields.len) |i| {
+                                inline for (0..info.field_types.len) |i| {
                                     if (index == i) {
                                         return PathResolution{
                                             .field = try action_fn(
@@ -482,10 +488,10 @@ pub fn InvokerType(
 // https://github.com/ziglang/zig/issues/2473
 fn isOnErrorSet(comptime Error: type, value: anyerror) bool {
     switch (@typeInfo(Error)) {
-        .error_set => |info| if (info) |errors| {
+        .error_set => |info| if (info.error_names) |error_names| {
             if (@typeInfo(@TypeOf(value)) == .error_set) {
-                inline for (errors) |item| {
-                    const int_value = @intFromError(@field(Error, item.name));
+                inline for (error_names) |error_name| {
+                    const int_value = @intFromError(@field(Error, error_name));
                     if (int_value == @intFromError(value)) return true;
                 }
             }
@@ -530,7 +536,7 @@ test {
 }
 
 const invoker_tests = struct {
-    const Tuple = std.meta.Tuple(&.{ u8, u32, u64 });
+    const Tuple = @Tuple(&.{ u8, u32, u64 });
     const Data = struct {
         a1: struct {
             b1: struct {

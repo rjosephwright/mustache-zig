@@ -4509,9 +4509,9 @@ const tests = struct {
         } else {
             const info = @typeInfo(Data);
             if (info == .@"struct") {
-                const decls = info.@"struct".decls;
-                inline for (decls) |decl| {
-                    const DeclType = @TypeOf(@field(Data, decl.name));
+                const decl_names = info.@"struct".decl_names;
+                inline for (decl_names) |decl_name| {
+                    const DeclType = @TypeOf(@field(Data, decl_name));
                     if (@typeInfo(DeclType) == .@"fn") return true;
                 }
             }
@@ -4546,7 +4546,6 @@ const tests = struct {
             // Comptime template render
             const comptime_template = comptime mustache.parseComptime(template_text, .{}, .{});
 
-            // TODO: Determine why this throws "runtime value contains reference to comptime var"
             const result = try allocRender(allocator, comptime_template, data);
             defer allocator.free(result);
             try testing.expectEqualStrings(expected, result);
@@ -4623,7 +4622,7 @@ const tests = struct {
             // Cached template render
             const comptime_template = comptime mustache.parseComptime(template_text, .{}, .{});
 
-            const PartialTuple = std.meta.Tuple(&[_]type{ []const u8, Template });
+            const PartialTuple = @Tuple(&.{ []const u8, Template });
             comptime var comptime_partials: [partials.len]PartialTuple = undefined;
 
             comptime {
@@ -4633,7 +4632,6 @@ const tests = struct {
                 }
             }
 
-            // TODO: Determine why this throws "runtime value contains reference to comptime var"
             const result = try allocRenderPartials(allocator, comptime_template, comptime_partials, data);
             defer allocator.free(result);
 

@@ -41,6 +41,8 @@
 
 ## Examples
 
+Requires Zig 0.17.0. Run the tests with `zig build test`.
+
 Render from strings, files and pre-loaded templates.
 See the [source code](https://github.com/batiati/mustache-zig/blob/master/samples/zig/src/main.zig) for more details.
 
@@ -70,7 +72,9 @@ pub fn main() !void {
         },
     };
 
-    const allocator = std.testing.allocator;
+    var gpa = std.heap.SafeAllocator.init(std.heap.page_allocator, .{});
+    defer if (gpa.deinit() != 0) @panic("memory leak");
+    const allocator = gpa.allocator();
     const result = try mustache.allocRenderText(allocator, template, data);
     defer allocator.free(result);
 
@@ -89,32 +93,29 @@ pub fn main() !void {
 
 ### Comptime parser
 
-```Zig
+Parse a static template at compile time, then render it with runtime data.
 
+```Zig
 const std = @import("std");
 const mustache = @import("mustache");
 
 pub fn main() !void {
     const template_text = "It's a comptime loaded template, with a {{value}}";
-    const comptime_template = comptime mustache.parseComptime(template_text, .{}, .{});
-    
-    const Data = struct { value: []const u8 };
-    const data: Data = .{
-        .value = "runtime value"
-    };
+    const template = comptime mustache.parseComptime(template_text, .{}, .{});
+    const data = .{ .value = "runtime value" };
 
-    const allocator = std.testing.allocator;
-    const result = try mustache.allocRender(comptime_template, data);
+    var gpa = std.heap.SafeAllocator.init(std.heap.page_allocator, .{});
+    defer if (gpa.deinit() != 0) @panic("memory leak");
+    const allocator = gpa.allocator();
+    const result = try mustache.allocRender(allocator, template, data);
     defer allocator.free(result);
 
     try std.testing.expectEqualStrings(
-        "It's a comptime loaded template, with a runtime value", 
+        "It's a comptime loaded template, with a runtime value",
         result,
     );
 }
-
 ```
-
 
 ### JSON support
 
@@ -124,7 +125,9 @@ const std = @import("std");
 const mustache = @import("mustache");
 
 pub fn main() !void {
-    const allocator = std.testing.allocator;
+    var gpa = std.heap.SafeAllocator.init(std.heap.page_allocator, .{});
+    defer if (gpa.deinit() != 0) @panic("memory leak");
+    const allocator = gpa.allocator();
 
     // Parsing an arbitrary (dynamic) json string:
     const json_source =
@@ -141,7 +144,7 @@ pub fn main() !void {
     defer json.deinit();
 
     const template = "Hello {{name}} from Zig";
-    const result = try mustache.allocRenderText(allocator, template, json);
+    const result = try mustache.allocRenderText(allocator, template, json.value);
     defer allocator.free(result);
 
     try std.testing.expectEqualStrings("Hello friends from Zig" , result);
@@ -236,16 +239,25 @@ Mustache templates are well known for HTML templating, but it's useful to render
 
 So, it's also important to be able to deal with multi-megabyte inputs without eating all your RAM.
 
+Pass `init.io` and an absolute template path to `renderFile`.
+`DebugAllocator` supports the requested allocation limit.
+
 ```Zig
 
     // 32KB should be enough memory for this job
     // 16KB if we don't need to support lambdas 😅
-    var plenty_of_memory = std.heap.GeneralPurposeAllocator(.{ .enable_memory_limit = true }){
+    var plenty_of_memory = std.heap.DebugAllocator(.{ .enable_memory_limit = true }){
         .requested_memory_limit = 32 * 1024,
     };
     defer _ = plenty_of_memory.deinit();
 
-    try mustache.renderFile(plenty_of_memory.allocator(), "10MB_file.mustache", ctx, out_writer);
+    try mustache.renderFile(
+        plenty_of_memory.allocator(),
+        io,
+        template_absolute_path,
+        ctx,
+        out_writer,
+    );
 
 ```
 

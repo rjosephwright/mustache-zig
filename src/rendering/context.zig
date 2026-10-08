@@ -239,7 +239,7 @@ pub const LambdaContext = struct {
         comptime fmt: []const u8,
         args: anytype,
     ) anyerror![]u8 {
-        const template_text = try std.fmt.allocPrint(allocator, fmt, args);
+        const template_text = try allocator.print(fmt, args);
         defer allocator.free(template_text);
 
         return try self.vtable.renderAlloc(self.ptr, allocator, template_text);
@@ -263,7 +263,7 @@ pub const LambdaContext = struct {
         comptime fmt: []const u8,
         args: anytype,
     ) anyerror!void {
-        const template_text = try std.fmt.allocPrint(allocator, fmt, args);
+        const template_text = try allocator.print(fmt, args);
         defer allocator.free(template_text);
 
         try self.vtable.render(self.ptr, allocator, template_text);

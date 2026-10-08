@@ -42,7 +42,7 @@ pub fn PartialsMapType(comptime TPartials: type, comptime comptime_options: Rend
         pub fn isEmpty() bool {
             return switch (@typeInfo(TPartials)) {
                 .void => true,
-                .@"struct" => |info| info.is_tuple and info.fields.len == 0,
+                .@"struct" => |info| info.is_tuple and info.field_names.len == 0,
                 inline .array, .vector => |info| return info.len == 0,
                 else => false,
             };
@@ -70,7 +70,7 @@ pub fn PartialsMapType(comptime TPartials: type, comptime comptime_options: Rend
             if (comptime isPartialsTupleElement(TPartials)) {
                 return if (std.mem.eql(u8, self.partials.@"0", key)) self.partials.@"1" else null;
             } else {
-                inline for (0..meta.fields(TPartials).len) |index| {
+                inline for (0..@typeInfo(TPartials).@"struct".field_types.len) |index| {
                     const item = self.partials[index];
                     if (std.mem.eql(u8, item.@"0", key)) return item.@"1";
                 } else {
@@ -113,8 +113,8 @@ pub fn PartialsMapType(comptime TPartials: type, comptime comptime_options: Rend
                     if (isPartialsTupleElement(TPartials)) {
                         return true;
                     } else {
-                        for (meta.fields(TPartials)) |field| {
-                            if (!isPartialsTupleElement(field.type)) {
+                        for (@typeInfo(TPartials).@"struct".field_types) |field_type| {
+                            if (!isPartialsTupleElement(field_type)) {
                                 return false;
                             }
                         } else {
@@ -145,12 +145,13 @@ pub fn PartialsMapType(comptime TPartials: type, comptime comptime_options: Rend
         fn isPartialsTupleElement(comptime TElement: type) bool {
             comptime {
                 if (stdx.isTuple(TElement)) {
-                    const fields = meta.fields(TElement);
-                    if (fields.len == 2 and stdx.isZigString(fields[0].type)) {
-                        if (fields[1].type == PartialsMap.Template) {
+                    const field_types = @typeInfo(TElement).@"struct".field_types;
+                    if (field_types.len == 2 and stdx.isZigString(field_types[0])) {
+                        if (field_types[1] == PartialsMap.Template) {
                             return true;
                         } else {
-                            return stdx.isZigString(fields[1].type) and stdx.isZigString(PartialsMap.Template);
+                            return stdx.isZigString(field_types[1]) and
+                                stdx.isZigString(PartialsMap.Template);
                         }
                     }
                 }
@@ -166,7 +167,8 @@ pub fn PartialsMapType(comptime TPartials: type, comptime comptime_options: Rend
                         const kv: KV = undefined;
                         return stdx.isZigString(@TypeOf(kv.key)) and
                             (@TypeOf(kv.value) == PartialsMap.Template or
-                            (stdx.isZigString(@TypeOf(kv.value)) and stdx.isZigString(PartialsMap.Template)));
+                                (stdx.isZigString(@TypeOf(kv.value)) and
+                                    stdx.isZigString(PartialsMap.Template)));
                     }
                 }
 

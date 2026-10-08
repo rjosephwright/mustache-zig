@@ -295,6 +295,13 @@ pub fn parseComptime(
 ) Template {
     comptime {
         @setEvalBranchQuota(999999);
+        const text_storage = template_text.*;
+        const opening_storage = default_delimiters.starting_delimiter.*;
+        const closing_storage = default_delimiters.ending_delimiter.*;
+        const delimiters = Delimiters{
+            .starting_delimiter = &opening_storage,
+            .ending_delimiter = &closing_storage,
+        };
         const source = TemplateSource{ .string = .{ .copy_strings = false } };
         const unused: Allocator = undefined;
         const parse_result = parseSource(
@@ -302,12 +309,12 @@ pub fn parseComptime(
             features,
             unused,
             {},
-            template_text,
-            default_delimiters,
+            &text_storage,
+            delimiters,
             .{
                 .comptime_loaded = .{
-                    .template_text = template_text,
-                    .default_delimiters = default_delimiters,
+                    .template_text = &text_storage,
+                    .default_delimiters = delimiters,
                 },
             },
         ) catch unreachable;
@@ -397,9 +404,9 @@ pub fn TemplateLoaderType(comptime options: TemplateOptions) type {
         const Collector = struct {
             pub const Error = error{};
 
-            elements: []Element = &.{},
+            elements: []const Element = &.{},
 
-            pub inline fn render(ctx: *Collector, elements: []Element) Error!void {
+            pub inline fn render(ctx: *Collector, elements: []const Element) Error!void {
                 ctx.elements = elements;
             }
         };
@@ -2392,7 +2399,7 @@ const tests = struct {
 
                 count: usize = 0,
 
-                pub fn render(ctx: *@This(), elements: []Element) Error!void {
+                pub fn render(ctx: *@This(), elements: []const Element) Error!void {
                     ctx.count += elements.len;
                     checkStrings(elements);
                 }
@@ -2467,6 +2474,30 @@ const tests = struct {
             try testing.expectEqual(Element.Type.static_text, std.meta.activeTag(template.elements[1]));
             try testing.expectEqualStrings("hello", template.elements[0].interpolation[0]);
             try testing.expectEqualStrings("world", template.elements[1].static_text);
+        }
+
+        test "parseComptime renders generated input at runtime" {
+            if (!comptime_tests_enabled) return error.SkipZigTest;
+            const template = comptime template: {
+                var text = "[[#person]]Hello [[name]]![[/person]]".*;
+                var opening = "[[".*;
+                var closing = "]]".*;
+                const parsed = mustache.parseComptime(&text, .{
+                    .starting_delimiter = &opening,
+                    .ending_delimiter = &closing,
+                }, .{});
+                @memset(&text, '?');
+                @memset(&opening, '?');
+                @memset(&closing, '?');
+                break :template parsed;
+            };
+
+            const allocator = testing.allocator;
+            const result = try mustache.allocRender(allocator, template, .{
+                .person = .{ .name = "Zig" },
+            });
+            defer allocator.free(result);
+            try testing.expectEqualStrings("Hello Zig!", result);
         }
 
         test "parseFile API" {
